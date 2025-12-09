@@ -223,6 +223,29 @@ async function startServer() {
     }
   });
 
+  // SSE 端点（StreamableHTTP 协议要求）
+  app.get('/mcp/sse', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    
+    // 发送初始连接事件
+    res.write('event: open\n');
+    res.write('data: {"type":"connection","status":"established"}\n\n');
+    
+    // 保持连接
+    const keepAlive = setInterval(() => {
+      res.write(': keepalive\n\n');
+    }, 30000);
+    
+    // 连接关闭时清理
+    req.on('close', () => {
+      clearInterval(keepAlive);
+      res.end();
+    });
+  });
+
   // 通用 MCP 端点（符合 StreamableHTTP 协议规范）
   app.post('/mcp', async (req, res) => {
     try {
@@ -299,9 +322,10 @@ async function startServer() {
     console.log(`📁 网站目录: ${WEBSITE_DIR}`);
     console.log(`🌐 访问地址: http://${SERVER_IP}/website/`);
     console.log(`\n可用端点:`);
+    console.log(`  - GET  /mcp/sse         - SSE 连接（StreamableHTTP）`);
+    console.log(`  - POST /mcp             - 标准 MCP 端点（JSON-RPC 2.0）`);
     console.log(`  - POST /mcp/list_tools  - 列出所有工具`);
     console.log(`  - POST /mcp/call_tool   - 调用工具`);
-    console.log(`  - POST /mcp             - 标准 MCP 端点`);
     console.log(`  - GET  /health          - 健康检查`);
   });
 }
