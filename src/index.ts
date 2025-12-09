@@ -223,24 +223,74 @@ async function startServer() {
     }
   });
 
-  // 通用 MCP 端点（兼容标准格式）
+  // 通用 MCP 端点（符合 StreamableHTTP 协议规范）
   app.post('/mcp', async (req, res) => {
     try {
-      const { method, params } = req.body;
+      const { jsonrpc, id, method, params } = req.body;
       
+      // 初始化握手（StreamableHTTP 协议要求）
+      if (method === 'initialize') {
+        res.json({
+          jsonrpc: '2.0',
+          id: id,
+          result: {
+            protocolVersion: '2024-11-05',
+            capabilities: {
+              tools: {},
+            },
+            serverInfo: {
+              name: 'deploy-website-mcp',
+              version: '1.0.0',
+            },
+          },
+        });
+        return;
+      }
+      
+      // 列出工具
       if (method === 'tools/list') {
-        res.json({ tools });
-      } else if (method === 'tools/call') {
+        res.json({
+          jsonrpc: '2.0',
+          id: id,
+          result: {
+            tools: tools,
+          },
+        });
+        return;
+      }
+      
+      // 调用工具
+      if (method === 'tools/call') {
         const { name, arguments: args } = params;
         const result = await handleToolCall(name, args || {});
-        res.json(result);
-      } else {
-        res.status(400).json({ error: '不支持的方法' });
+        res.json({
+          jsonrpc: '2.0',
+          id: id,
+          result: result,
+        });
+        return;
       }
+      
+      // 不支持的方法
+      res.status(400).json({
+        jsonrpc: '2.0',
+        id: id,
+        error: {
+          code: -32601,
+          message: `不支持的方法: ${method}`,
+        },
+      });
     } catch (error) {
       console.error('MCP 请求处理错误:', error);
       const errorMessage = error instanceof Error ? error.message : String(error);
-      res.status(500).json({ error: errorMessage });
+      res.status(500).json({
+        jsonrpc: '2.0',
+        id: req.body.id,
+        error: {
+          code: -32603,
+          message: errorMessage,
+        },
+      });
     }
   });
 
