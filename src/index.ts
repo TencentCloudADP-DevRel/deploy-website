@@ -179,8 +179,17 @@ async function startServer() {
   app.use(cors({
     origin: '*',
     methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    credentials: true,
   }));
+
+  // OPTIONS 预检请求
+  app.options('*', (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
+    res.status(204).send();
+  });
 
   app.use(express.json({ limit: '50mb' }));
 
@@ -223,16 +232,18 @@ async function startServer() {
     }
   });
 
-  // SSE 端点（StreamableHTTP 协议要求）
-  app.get('/mcp/sse', (req, res) => {
+  // SSE 处理函数
+  const handleSSE = (req: any, res: any) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('X-Accel-Buffering', 'no');
     
     // 发送初始连接事件
     res.write('event: open\n');
     res.write('data: {"type":"connection","status":"established"}\n\n');
+    res.flushHeaders();
     
     // 保持连接
     const keepAlive = setInterval(() => {
@@ -244,11 +255,33 @@ async function startServer() {
       clearInterval(keepAlive);
       res.end();
     });
-  });
+  };
+
+  // SSE 端点（支持多个路径）
+  app.get('/mcp/sse', handleSSE);
+  app.get('/sse', handleSSE);
+  app.get('/mcp', handleSSE);  // 兼容某些客户端对 GET /mcp 的 SSE 请求
 
   // 通用 MCP 端点（符合 StreamableHTTP 协议规范）
   app.post('/mcp', async (req, res) => {
     try {
+      // StreamableHTTP 协议要求：检查 Accept 头
+      const acceptHeader = req.get('Accept') || '';
+      const acceptsJSON = acceptHeader.includes('application/json') || acceptHeader.includes('*/*');
+      const acceptsSSE = acceptHeader.includes('text/event-stream') || acceptHeader.includes('*/*');
+      
+      if (!acceptsJSON || !acceptsSSE) {
+        res.status(406).json({
+          jsonrpc: '2.0',
+          error: {
+            code: -32000,
+            message: 'Not Acceptable: Client must accept both application/json and text/event-stream',
+          },
+          id: null,
+        });
+        return;
+      }
+
       const { jsonrpc, id, method, params } = req.body;
       
       // 初始化握手（StreamableHTTP 协议要求）
@@ -322,8 +355,10 @@ async function startServer() {
     console.log(`📁 网站目录: ${WEBSITE_DIR}`);
     console.log(`🌐 访问地址: http://${SERVER_IP}/website/`);
     console.log(`\n可用端点:`);
-    console.log(`  - GET  /mcp/sse         - SSE 连接（StreamableHTTP）`);
-    console.log(`  - POST /mcp             - 标准 MCP 端点（JSON-RPC 2.0）`);
+    console.log(`  - GET  /mcp/sse         - SSE 连接（主要）`);
+    console.log(`  - GET  /sse             - SSE 连接（备用）`);
+    console.log(`  - GET  /mcp             - SSE 连接（兼容）`);
+    console.log(`  - POST /mcp             - JSON-RPC 2.0 端点`);
     console.log(`  - POST /mcp/list_tools  - 列出所有工具`);
     console.log(`  - POST /mcp/call_tool   - 调用工具`);
     console.log(`  - GET  /health          - 健康检查`);
