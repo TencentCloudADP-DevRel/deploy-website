@@ -7,6 +7,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import crypto from "crypto";
 import os from "os";
+import multer from "multer";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,7 +44,24 @@ async function ensureWebsiteDir() {
 async function startServer() {
   const app = express();
 
-  app.use(cors());
+  // 配置 multer 用于文件上传（只允许 .html 文件）
+  const upload = multer({ 
+    dest: '/tmp/',
+    limits: {
+      fileSize: 50 * 1024 * 1024 // 50MB
+    },
+    fileFilter: (req, file, cb) => {
+      if (file.originalname.endsWith('.html')) {
+        cb(null, true);
+      } else {
+        cb(new Error('只支持 .html 文件'));
+      }
+    }
+  });
+
+  app.use(cors({
+    origin: 'https://adp.tencentcloud.com'
+  }));
   app.use(express.json({ limit: '50mb' }));
   app.use(express.text({ limit: '50mb', type: 'text/html' }));
 
@@ -128,6 +146,63 @@ async function startServer() {
       });
     } catch (error) {
       console.error('部署错误:', error);
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // API: 上传 HTML 文件（支持 multipart/form-data）
+  app.post('/api/upload', upload.single('file'), async (req, res) => {
+    try {
+      await ensureWebsiteDir();
+
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          error: '请上传文件'
+        });
+      }
+
+      // 读取上传的文件内容
+      const htmlContent = await fs.readFile(req.file.path, 'utf-8');
+      
+      // 使用用户指定的文件名，或使用原始文件名
+      const customFilename = req.body.filename;
+      let finalFilename: string;
+      
+      if (customFilename) {
+        finalFilename = customFilename.endsWith('.html') 
+          ? customFilename 
+          : `${customFilename}.html`;
+      } else {
+        const originalName = req.file.originalname;
+        finalFilename = originalName.endsWith('.html') 
+          ? originalName 
+          : `${path.parse(originalName).name}.html`;
+      }
+
+      const filePath = path.join(WEBSITE_DIR, finalFilename);
+      
+      // 写入文件
+      await fs.writeFile(filePath, htmlContent, 'utf-8');
+      
+      // 删除临时文件
+      await fs.unlink(req.file.path).catch(() => {});
+      
+      // 返回结果
+      const url = `${BASE_URL}/files/${finalFilename}`;
+      
+      res.json({
+        success: true,
+        filename: finalFilename,
+        url: url,
+        message: '文件已成功上传并部署',
+        server: SERVER_IP,
+      });
+    } catch (error) {
+      console.error('上传错误:', error);
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : String(error)
