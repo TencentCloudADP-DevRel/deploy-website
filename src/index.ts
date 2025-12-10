@@ -79,14 +79,21 @@ async function startServer() {
         deploy: {
           method: 'POST',
           path: '/api/deploy',
-          description: '部署 HTML 文件',
+          description: '部署 HTML 文件（支持直接传 HTML 或提供 URL）',
           body: {
-            html: 'string (required) - HTML 内容',
+            html: 'string (optional) - HTML 内容',
+            url: 'string (optional) - HTML 文件的 URL（服务端会自动下载）',
             filename: 'string (optional) - 文件名（不含扩展名）'
           },
-          example: `curl -X POST ${BASE_URL}/api/deploy \\
+          note: '必须提供 html 或 url 参数之一',
+          examples: {
+            fromHtml: `curl -X POST ${BASE_URL}/api/deploy \\
   -H "Content-Type: application/json" \\
-  -d '{"html":"<h1>Hello</h1>","filename":"test"}'`
+  -d '{"html":"<h1>Hello</h1>","filename":"test"}'`,
+            fromUrl: `curl -X POST ${BASE_URL}/api/deploy \\
+  -H "Content-Type: application/json" \\
+  -d '{"url":"https://cdn.jsdelivr.net/gh/xxx/hunuyan3d.html","filename":"my-page"}'`
+          }
         },
         list: {
           method: 'GET',
@@ -115,12 +122,46 @@ async function startServer() {
     try {
       await ensureWebsiteDir();
 
-      const { html, filename } = req.body;
+      let { html, filename, url } = req.body;
       
+      // 如果提供了 URL，从 URL 下载 HTML 内容
+      if (url && !html) {
+        try {
+          console.log(`📥 正在从 URL 下载 HTML: ${url}`);
+          const response = await fetch(url);
+          
+          if (!response.ok) {
+            return res.status(400).json({
+              success: false,
+              error: `无法下载 HTML: HTTP ${response.status} ${response.statusText}`
+            });
+          }
+          
+          html = await response.text();
+          console.log(`✅ HTML 下载成功，大小: ${html.length} 字节`);
+          
+          // 如果没有指定 filename，从 URL 中提取
+          if (!filename) {
+            const urlPath = new URL(url).pathname;
+            const urlFilename = path.basename(urlPath);
+            if (urlFilename && urlFilename.endsWith('.html')) {
+              filename = urlFilename.replace('.html', '');
+            }
+          }
+        } catch (error) {
+          console.error('URL 下载错误:', error);
+          return res.status(400).json({
+            success: false,
+            error: `下载 URL 失败: ${error instanceof Error ? error.message : String(error)}`
+          });
+        }
+      }
+      
+      // 验证 HTML 内容
       if (!html) {
         return res.status(400).json({
           success: false,
-          error: 'HTML 内容不能为空'
+          error: '请提供 html 内容或 url 参数'
         });
       }
 
@@ -135,14 +176,15 @@ async function startServer() {
       await fs.writeFile(filePath, html, "utf-8");
       
       // 返回结果
-      const url = `${BASE_URL}/files/${finalFilename}`;
+      const deployedUrl = `${BASE_URL}/files/${finalFilename}`;
       
       res.json({
         success: true,
         filename: finalFilename,
-        url: url,
-        message: '网站已成功部署',
+        url: deployedUrl,
+        message: url ? `从 URL 下载并部署成功` : '网站已成功部署',
         server: SERVER_IP,
+        sourceUrl: url || undefined,
       });
     } catch (error) {
       console.error('部署错误:', error);
