@@ -76,6 +76,18 @@ async function startServer() {
       server: SERVER_IP,
       baseUrl: BASE_URL,
       endpoints: {
+        deploy3dWebsite: {
+          method: 'POST',
+          path: '/api/deploy-3d-website',
+          description: '使用 3D 模板部署（传递 COS GLB 链接）',
+          body: {
+            cosUrl: 'string (required) - GLB 模型的 COS 永久链接',
+            filename: 'string (optional) - 自定义文件名（不含扩展名，不提供则自动生成）'
+          },
+          example: `curl -X POST ${BASE_URL}/api/deploy-3d-website \\
+  -H "Content-Type: application/json" \\
+  -d '{"cosUrl":"https://adp-xxx.cos.ap-singapore.myqcloud.com/models/model.glb","filename":"my-3d-model"}'`
+        },
         deploy: {
           method: 'POST',
           path: '/api/deploy',
@@ -188,6 +200,67 @@ async function startServer() {
       });
     } catch (error) {
       console.error('部署错误:', error);
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // API: 使用模板部署（传递 COS URL）
+  app.post('/api/deploy-3d-website', async (req, res) => {
+    try {
+      await ensureWebsiteDir();
+
+      const { cosUrl, filename } = req.body;
+      
+      // 验证 cosUrl 参数
+      if (!cosUrl) {
+        return res.status(400).json({
+          success: false,
+          error: '请提供 cosUrl 参数（GLB 模型的 COS 链接）'
+        });
+      }
+
+      // 读取模板文件
+      const templatePath = path.join(__dirname, '../templates/3d-website.html');
+      let templateContent: string;
+      
+      try {
+        templateContent = await fs.readFile(templatePath, 'utf-8');
+      } catch (error) {
+        return res.status(500).json({
+          success: false,
+          error: '无法读取模板文件，请检查 templates/3d-website.html 是否存在'
+        });
+      }
+
+      // 替换占位符
+      const htmlContent = templateContent.replace('{cos-mcp-url}', cosUrl);
+
+      // 生成唯一文件名
+      const finalFilename = filename 
+        ? `${filename}.html`
+        : `viewer_${crypto.randomBytes(4).toString("hex")}.html`;
+
+      const filePath = path.join(WEBSITE_DIR, finalFilename);
+      
+      // 写入文件
+      await fs.writeFile(filePath, htmlContent, "utf-8");
+      
+      // 返回结果
+      const deployedUrl = `${BASE_URL}/files/${finalFilename}`;
+      
+      res.json({
+        success: true,
+        filename: finalFilename,
+        url: deployedUrl,
+        cosUrl: cosUrl,
+        message: '3D 网页已成功部署',
+        server: SERVER_IP,
+      });
+    } catch (error) {
+      console.error('模板部署错误:', error);
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : String(error)
