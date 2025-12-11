@@ -1,0 +1,329 @@
+swagger: "2.0"
+info:
+  title: Deploy 3D Website API
+  version: 1.0.0
+  description: 部署 3D 网页的 API 服务，支持通过 COS GLB 模型链接快速生成可交互的 3D 展示网页
+host: "157.20.105.56:3007"
+basePath: "/"
+schemes:
+  - "http"
+
+paths:
+  /api/deploy-3d-website:
+    post:
+      summary: 部署 3D 展示网页
+      description: 使用预设的 3D 网页模板，传递 GLB 模型的 COS 链接，自动生成并部署可交互的 3D 展示网页
+      tags:
+        - Deployment
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required:
+              - cosUrl
+            properties:
+              cosUrl:
+                type: string
+                description: GLB 3D 模型文件的 COS 永久访问链接（必填）
+                example: "https://adp-1358396436.cos.ap-singapore.myqcloud.com/3d_models/shenzhen_model.glb"
+              filename:
+                type: string
+                description: 自定义文件名（不含 .html 扩展名），不提供则自动生成随机文件名
+                example: "my-3d-model"
+      responses:
+        '200':
+          description: 部署成功
+          schema:
+            type: object
+            required:
+              - success
+              - filename
+              - url
+            properties:
+              success:
+                type: boolean
+                description: 请求是否成功
+                example: true
+              filename:
+                type: string
+                description: 生成的文件名（含 .html 扩展名）
+                example: "my-3d-model.html"
+              url:
+                type: string
+                description: 部署后的访问地址
+                example: "http://157.20.105.56:3007/files/my-3d-model.html"
+              cosUrl:
+                type: string
+                description: 使用的 GLB 模型链接
+                example: "https://adp-1358396436.cos.ap-singapore.myqcloud.com/3d_models/shenzhen_model.glb"
+              message:
+                type: string
+                description: 返回消息
+                example: "3D 网页已成功部署"
+              server:
+                type: string
+                description: 服务器 IP 地址
+                example: "157.20.105.56"
+        '400':
+          description: 请求参数错误
+          schema:
+            type: object
+            required:
+              - success
+              - error
+            properties:
+              success:
+                type: boolean
+                example: false
+              error:
+                type: string
+                example: "请提供 cosUrl 参数（GLB 模型的 COS 链接）"
+        '500':
+          description: 服务器内部错误
+          schema:
+            type: object
+            required:
+              - success
+              - error
+            properties:
+              success:
+                type: boolean
+                example: false
+              error:
+                type: string
+                example: "无法读取模板文件，请检查 templates/3d-website.html 是否存在"
+
+  /api/list:
+    get:
+      summary: 获取已部署文件列表
+      description: 列出所有已部署的 HTML 文件及其详细信息
+      tags:
+        - Files
+      produces:
+        - application/json
+      responses:
+        '200':
+          description: 获取列表成功
+          schema:
+            type: object
+            required:
+              - success
+              - count
+              - files
+            properties:
+              success:
+                type: boolean
+                example: true
+              count:
+                type: integer
+                description: 文件总数
+                example: 33
+              files:
+                type: array
+                description: 已部署文件列表
+                items:
+                  type: object
+                  required:
+                    - filename
+                    - url
+                  properties:
+                    filename:
+                      type: string
+                      example: "my-3d-model.html"
+                    url:
+                      type: string
+                      example: "http://157.20.105.56:3007/files/my-3d-model.html"
+                    size:
+                      type: integer
+                      description: 文件大小（字节）
+                      example: 15240
+                    modified:
+                      type: string
+                      format: date-time
+                      description: 最后修改时间
+                      example: "2024-01-15T10:30:00.000Z"
+              server:
+                type: string
+                example: "157.20.105.56"
+        '500':
+          description: 服务器内部错误
+          schema:
+            type: object
+            required:
+              - success
+              - error
+            properties:
+              success:
+                type: boolean
+                example: false
+              error:
+                type: string
+                example: "Failed to read directory"
+
+  /api/delete/{filename}:
+    delete:
+      summary: 删除已部署的文件
+      description: 根据文件名删除已部署的 HTML 文件
+      tags:
+        - Files
+      produces:
+        - application/json
+      parameters:
+        - name: filename
+          in: path
+          description: 要删除的文件名（需包含 .html 扩展名）
+          required: true
+          type: string
+          example: "my-3d-model.html"
+      responses:
+        '200':
+          description: 删除成功
+          schema:
+            type: object
+            required:
+              - success
+              - message
+            properties:
+              success:
+                type: boolean
+                example: true
+              message:
+                type: string
+                example: "文件已成功删除"
+              server:
+                type: string
+                example: "157.20.105.56"
+        '404':
+          description: 文件不存在
+          schema:
+            type: object
+            required:
+              - success
+              - error
+            properties:
+              success:
+                type: boolean
+                example: false
+              error:
+                type: string
+                example: "文件不存在"
+        '500':
+          description: 服务器内部错误
+          schema:
+            type: object
+            required:
+              - success
+              - error
+            properties:
+              success:
+                type: boolean
+                example: false
+              error:
+                type: string
+                example: "Internal server error"
+
+  /files/{filename}:
+    get:
+      summary: 访问已部署的文件
+      description: 通过文件名访问已部署的 3D 展示网页
+      tags:
+        - Files
+      produces:
+        - text/html
+      parameters:
+        - name: filename
+          in: path
+          description: 文件名（需包含 .html 扩展名）
+          required: true
+          type: string
+          example: "my-3d-model.html"
+      responses:
+        '200':
+          description: 返回 HTML 文件内容
+          schema:
+            type: string
+        '404':
+          description: 文件不存在
+          schema:
+            type: string
+            example: "404 Not Found"
+
+definitions:
+  DeployRequest:
+    type: object
+    required:
+      - cosUrl
+    properties:
+      cosUrl:
+        type: string
+        description: GLB 模型的 COS URL
+        example: "https://adp-1358396436.cos.ap-singapore.myqcloud.com/3d_models/shenzhen_model.glb"
+      filename:
+        type: string
+        description: 自定义文件名（可选）
+        example: "my-3d-model"
+
+  DeployResponse:
+    type: object
+    required:
+      - success
+      - filename
+      - url
+    properties:
+      success:
+        type: boolean
+        example: true
+      filename:
+        type: string
+        example: "my-3d-model.html"
+      url:
+        type: string
+        example: "http://157.20.105.56:3007/files/my-3d-model.html"
+      cosUrl:
+        type: string
+        example: "https://adp-1358396436.cos.ap-singapore.myqcloud.com/3d_models/shenzhen_model.glb"
+
+  FileInfo:
+    type: object
+    required:
+      - filename
+      - url
+    properties:
+      filename:
+        type: string
+        example: "my-3d-model.html"
+      url:
+        type: string
+        example: "http://157.20.105.56:3007/files/my-3d-model.html"
+      size:
+        type: integer
+        example: 15240
+      modified:
+        type: string
+        format: date-time
+        example: "2024-01-15T10:30:00.000Z"
+
+  ErrorResponse:
+    type: object
+    required:
+      - success
+      - error
+    properties:
+      success:
+        type: boolean
+        example: false
+      error:
+        type: string
+        example: "Error message"
+
+tags:
+  - name: Deployment
+    description: 3D 网站部署操作
+  - name: Files
+    description: 文件管理操作
